@@ -1,0 +1,1 @@
+# DexterNgn-Linear-Regression-Modeling-in-Predicting-Optimal-Sales-Price-for-Homes-in-Ames-Iowa
