@@ -1,0 +1,915 @@
+---
+title: "Creating a Linear Regression Model to Help Predict the Best Sales Price for Homes in Ames Iowa"
+author: "Anika Abrahamson,Yaqiong(Juno) Cao, Dexter Nguyen, Michael Ruch, Xinying(Silvia) Sun"
+date: "September 24, 2020"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T, message=FALSE, warning=FALSE)
+```
+
+<style type="text/css">
+
+body{ /* Normal  */
+      font-size: 12px;
+  }
+td {  /* Table  */
+  font-size: 8px;
+}
+h1.title {
+  font-size: 38px;
+  color: DarkRed;
+}
+h1 { /* Header 1 */
+  font-size: 28px;
+  color: DarkBlue;
+}
+h2 { /* Header 2 */
+    font-size: 22px;
+  color: DarkBlue;
+}
+
+code.r{ /* Code block */
+    font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+    font-size: 14px;
+}
+</style>
+
+```{r}
+library(dataQualityR)
+library(e1071)
+library(mice)
+library(corrplot)
+library(ggplot2)
+library(ggpubr)
+library(scales)
+library(caret)
+library(dplyr)
+library(tidyverse)
+library(sf)
+library(gganimate)
+library(MASS)
+```
+
+# Outline:
+1. Introduction - Business Context
+2. Data Preparation
+2.1. Data collection
+2.2. Data Cleaning
+2.3. Data transformation
+2.4. Correlation Analysis
+3. Exploratory Data Analysis - EDA
+4. Modeling
+4.1. Modeling with top 10 variables
+4.2. Modeling with all variables
+5. Evaluation
+
+# 1. Introduction
+
+# 2. Data Preparation
+
+## 2.1. Data collection
+
+## 2.2. Data cleaning
+
+- Data reading
+```{r}
+df<-read.delim("AmesHousing.txt")
+dim(df)
+```
+- Data overview
+```{r}
+str(df)
+summary(df)
+```
+
+- Remove 2 columns: Order and PID
+```{r}
+df$Order<-NULL # Order column looks like meaningless
+df$PID<-NULL # PID column looks like meaningless
+```
+
+- change subclass from num to cat 
+```{r}
+class(df$MS.SubClass)
+df$MS.SubClass
+df$MS.SubClass = as.factor(df$MS.SubClass)
+class(df$MS.SubClass)
+levels(df$MS.SubClass)
+```
+
+- having a data report for cat and num 
+```{r}
+num.file <- paste(getwd(), "/dqames_num.csv", sep= "")
+cat.file <- paste(getwd(), "/dqames_cat.csv", sep= "")
+checkDataQuality(data= df, out.file.num= num.file, out.file.cat= cat.file)
+```
+
+- num - remove NAs
+```{r}
+df=df[which(is.na(df$Mas.Vnr.Area)==FALSE),]
+df=df[which(is.na(df$BsmtFin.SF.1)==FALSE),]
+df=df[which(is.na(df$BsmtFin.SF.2)==FALSE),]
+df=df[which(is.na(df$Bsmt.Unf.SF)==FALSE),]
+df=df[which(is.na(df$Total.Bsmt.SF)==FALSE),]
+df=df[which(is.na(df$Garage.Yr.Blt)==FALSE),]
+df=df[which(is.na(df$Garage.Cars)==FALSE),]
+df=df[which(is.na(df$Garage.Area)==FALSE),]
+df=df[which(is.na(df$Bsmt.Full.Bath)==FALSE),]
+df=df[which(is.na(df$Bsmt.Half.Bath)==FALSE),]
+```
+
+- impute missing value by sampling 
+```{r}
+imputed = mice(df, seed = 169, method = "sample")
+micedf = complete(imputed, 3)
+df$Lot.Frontage = micedf$Lot.Frontage
+```
+
+- cat - remove Alley/pool/fence/misc.feature column
+```{r}
+df$Alley<-NULL
+df$Pool.QC<-NULL
+df$Fence<-NULL
+df$Misc.Feature<-NULL
+```
+
+- cat - remove NAs for feature other cat culumns
+```{r}
+df=df[which(is.na(df$Bsmt.Qual)==FALSE),]
+df=df[which(is.na(df$Bsmt.Cond)==FALSE),]
+df=df[which(is.na(df$Bsmt.Exposure)==FALSE),]
+df=df[which(is.na(df$BsmtFin.Type.1)==FALSE),]
+df=df[which(is.na(df$BsmtFin.Type.2)==FALSE),]
+df=df[which(is.na(df$Electrical)==FALSE),]
+```
+
+- replace the fireplace's NA with the most frequent level
+```{r}
+df$Fireplace.Qu[is.na(df$Fireplace.Qu)] <- "Gd" # I cannot found a better way to deal with the missing cat value 
+```
+
+- check current data report 
+```{r}
+num.file <- paste(getwd(), "/dqames_num.csv", sep= "")
+cat.file <- paste(getwd(), "/dqames_cat.csv", sep= "")
+checkDataQuality(data= df, out.file.num= num.file, out.file.cat= cat.file)
+```
+
+- Replace contents of two columns: Kitchen_Qual and Bsmt_Qual
+```{r}
+df$Kitchen.Qual <- as.character(df$Kitchen.Qual)
+df$Kitchen.Qual[df$Kitchen.Qual == "Ex"] <- "Excellent"
+df$Kitchen.Qual[df$Kitchen.Qual == "Gd"] <- "Good"
+df$Kitchen.Qual[df$Kitchen.Qual == "TA"] <- "Typical"
+df$Kitchen.Qual[df$Kitchen.Qual == "Fa"] <- "Fair"
+df$Kitchen.Qual[df$Kitchen.Qual == "Po"] <- "Poor"
+df$Kitchen.Qual <- as.factor(df$Kitchen.Qual)
+
+df$Bsmt.Qual <- as.character(df$Bsmt.Qual)
+df$Bsmt.Qual[df$Bsmt.Qual == "Ex"] <- "Excellent"
+df$Bsmt.Qual[df$Bsmt.Qual == "Gd"] <- "Good"
+df$Bsmt.Qual[df$Bsmt.Qual == "TA"] <- "Typical"
+df$Bsmt.Qual[df$Bsmt.Qual == "Fa"] <- "Fair"
+df$Bsmt.Qual[df$Bsmt.Qual == "Po"] <- "Poor"
+df$Bsmt.Qual <- as.factor(df$Bsmt.Qual)
+```
+
+
+- Reorder the factor levels of two categorical variables: Kitchen_Qual and Bsmt_Qual: "Excellent", "Good", "Fair", "Typical", "Poor"
+```{r}
+df$Kitchen.Qual <- factor(df$Kitchen.Qual, levels=c("Excellent", "Good", "Fair", "Typical", "Poor"))
+df$Bsmt.Qual <- factor(df$Bsmt.Qual, levels=c("Excellent", "Good", "Fair", "Typical", "Poor"))
+```
+
+- Replace contents of 4 columns: "Garage.Cars", "Garage.Area", "Total.Bsmt.SF", "Full.Bath"
+```{r}
+df$Garage.Cars[df$Garage.Cars == 0] <- 0.01
+df$Garage.Area[df$Garage.Area == 0] <- 0.01
+df$Total.Bsmt.SF[df$Total.Bsmt.SF == 0] <- 0.01
+df$Full.Bath[df$Full.Bath == 0] <- 0.01
+```
+
+
+## 2.3. Data transformation
+
+## 2.3.1. Convert categorical variables to dummies
+
+- Create a set of categorical variable
+```{r}
+cate = c("MS.SubClass", "MS.Zoning", "Street", "Lot.Shape", "Land.Contour", "Utilities", "Lot.Config", "Land.Slope", "Neighborhood", "Condition.1", "Condition.2", "Bldg.Type", "House.Style", "Roof.Style", "Roof.Matl", "Exterior.1st", "Exterior.2nd", "Mas.Vnr.Type", "Exter.Qual", "Exter.Cond", "Foundation", "Bsmt.Qual", "Bsmt.Cond", "Bsmt.Exposure", "BsmtFin.Type.1", "BsmtFin.Type.2", "Heating", "Heating.QC", "Central.Air", "Electrical", "Kitchen.Qual", "Functional", "Fireplace.Qu", "Garage.Type", "Garage.Finish", "Garage.Qual", "Garage.Cond", "Paved.Drive", "Sale.Type", "Sale.Condition")
+```
+
+- convert categorical variables to dummies
+```{r}
+dfcate = df[,cate]
+```
+
+- The same code was used for all categorical variables
+```{r}
+for(level in unique(dfcate$MS.SubClass)){dfcate[paste("MS.SubClass", level, sep = "_")] <- ifelse(dfcate$MS.SubClass == level, 1, 0)}
+
+for(level in unique(dfcate$MS.Zoning)){dfcate[paste("MS.Zoning", level, sep = "_")] <- ifelse(dfcate$MS.Zoning == level, 1, 0)}
+
+for(level in unique(dfcate$Street)){dfcate[paste("Street", level, sep = "_")] <- ifelse(dfcate$Street == level, 1, 0)}
+
+for(level in unique(dfcate$Lot.Shape)){dfcate[paste("Lot.Shape", level, sep = "_")] <- ifelse(dfcate$Lot.Shape == level, 1, 0)}
+
+for(level in unique(dfcate$Land.Contour)){dfcate[paste("Land.Contour", level, sep = "_")] <- ifelse(dfcate$Land.Contour == level, 1, 0)}
+
+for(level in unique(dfcate$Utilities)){dfcate[paste("Utilities", level, sep = "_")] <- ifelse(dfcate$Utilities == level, 1, 0)}
+
+for(level in unique(dfcate$Lot.Config)){dfcate[paste("Lot.Config", level, sep = "_")] <- ifelse(dfcate$Lot.Config == level, 1, 0)}
+
+for(level in unique(dfcate$Land.Slope)){dfcate[paste("Land.Slope", level, sep = "_")] <- ifelse(dfcate$Land.Slope == level, 1, 0)}
+
+for(level in unique(dfcate$Neighborhood)){dfcate[paste("Neighborhood", level, sep = "_")] <- ifelse(dfcate$Neighborhood == level, 1, 0)}
+
+for(level in unique(dfcate$Condition.1)){dfcate[paste("Condition.1", level, sep = "_")] <- ifelse(dfcate$Condition.1 == level, 1, 0)}
+
+for(level in unique(dfcate$Condition.2)){dfcate[paste("Condition.2", level, sep = "_")] <- ifelse(dfcate$Condition.2 == level, 1, 0)}
+
+for(level in unique(dfcate$Bldg.Type)){dfcate[paste("Bldg.Type", level, sep = "_")] <- ifelse(dfcate$Bldg.Type == level, 1, 0)}
+
+for(level in unique(dfcate$House.Style)){dfcate[paste("House.Style", level, sep = "_")] <- ifelse(dfcate$House.Style == level, 1, 0)}
+
+for(level in unique(dfcate$Roof.Style)){dfcate[paste("Roof.Style", level, sep = "_")] <- ifelse(dfcate$Roof.Style == level, 1, 0)}
+
+for(level in unique(dfcate$MRoof.Matl)){dfcate[paste("Roof.Matl", level, sep = "_")] <- ifelse(dfcate$Roof.Matl == level, 1, 0)}
+
+for(level in unique(dfcate$Exterior.1st)){dfcate[paste("Exterior.1st", level, sep = "_")] <- ifelse(dfcate$Exterior.1st == level, 1, 0)}
+
+for(level in unique(dfcate$Exterior.2nd)){dfcate[paste("Exterior.2nd", level, sep = "_")] <- ifelse(dfcate$Exterior.2nd == level, 1, 0)}
+
+for(level in unique(dfcate$Mas.Vnr.Type)){dfcate[paste("Mas.Vnr.Type", level, sep = "_")] <- ifelse(dfcate$Mas.Vnr.Type == level, 1, 0)}
+
+for(level in unique(dfcate$Exter.Qual)){dfcate[paste("Exter.Qual", level, sep = "_")] <- ifelse(dfcate$Exter.Qual == level, 1, 0)}
+
+for(level in unique(dfcate$Exter.Cond)){dfcate[paste("Exter.Cond", level, sep = "_")] <- ifelse(dfcate$Exter.Cond == level, 1, 0)}
+
+for(level in unique(dfcate$Foundation)){dfcate[paste("Foundation", level, sep = "_")] <- ifelse(dfcate$Foundation == level, 1, 0)}
+
+for(level in unique(dfcate$Bsmt.Qual)){dfcate[paste("Bsmt.Qual", level, sep = "_")] <- ifelse(dfcate$Bsmt.Qual == level, 1, 0)}
+
+for(level in unique(dfcate$Bsmt.Cond)){dfcate[paste("Bsmt.Cond", level, sep = "_")] <- ifelse(dfcate$Bsmt.Cond == level, 1, 0)}
+
+for(level in unique(dfcate$Bsmt.Exposure)){dfcate[paste("Bsmt.Exposure", level, sep = "_")] <- ifelse(dfcate$Bsmt.Exposure == level, 1, 0)}
+
+for(level in unique(dfcate$BsmtFin.Type.1)){dfcate[paste("BsmtFin.Type.1", level, sep = "_")] <- ifelse(dfcate$BsmtFin.Type.1 == level, 1, 0)}
+
+for(level in unique(dfcate$BsmtFin.Type.2)){dfcate[paste("BsmtFin.Type.2", level, sep = "_")] <- ifelse(dfcate$BsmtFin.Type.2 == level, 1, 0)}
+
+for(level in unique(dfcate$Heating)){dfcate[paste("Heating", level, sep = "_")] <- ifelse(dfcate$Heating == level, 1, 0)}
+
+for(level in unique(dfcate$Heating.QC)){dfcate[paste("Heating.QC", level, sep = "_")] <- ifelse(dfcate$Heating.QC == level, 1, 0)}
+
+for(level in unique(dfcate$Central.Air)){dfcate[paste("Central.Air", level, sep = "_")] <- ifelse(dfcate$Central.Air == level, 1, 0)}
+
+for(level in unique(dfcate$Electrical)){dfcate[paste("Electrical", level, sep = "_")] <- ifelse(dfcate$Electrical == level, 1, 0)}
+
+for(level in unique(dfcate$Kitchen.Qual)){dfcate[paste("Kitchen.Qual", level, sep = "_")] <- ifelse(dfcate$Kitchen.Qual == level, 1, 0)}
+
+for(level in unique(dfcate$Functional)){dfcate[paste("Functional", level, sep = "_")] <- ifelse(dfcate$Functional == level, 1, 0)}
+
+for(level in unique(dfcate$Fireplace.Qu)){dfcate[paste("Fireplace.Qu", level, sep = "_")] <- ifelse(dfcate$Fireplace.Qu == level, 1, 0)}
+
+for(level in unique(dfcate$Garage.Type)){dfcate[paste("Garage.Type", level, sep = "_")] <- ifelse(dfcate$Garage.Type == level, 1, 0)}
+
+for(level in unique(dfcate$Garage.Finish)){dfcate[paste("Garage.Finish", level, sep = "_")] <- ifelse(dfcate$Garage.Finish == level, 1, 0)}
+
+for(level in unique(dfcate$Garage.Qual)){dfcate[paste("Garage.Qual", level, sep = "_")] <- ifelse(dfcate$Garage.Qual == level, 1, 0)}
+
+for(level in unique(dfcate$Garage.Cond)){dfcate[paste("Garage.Cond", level, sep = "_")] <- ifelse(dfcate$Garage.Cond == level, 1, 0)}
+
+for(level in unique(dfcate$Paved.Drive)){dfcate[paste("Paved.Drive", level, sep = "_")] <- ifelse(dfcate$Paved.Drive == level, 1, 0)}
+
+for(level in unique(dfcate$Sale.Type)){dfcate[paste("Sale.Type", level, sep = "_")] <- ifelse(dfcate$Sale.Type == level, 1, 0)}
+
+for(level in unique(dfcate$Sale.Condition)){dfcate[paste("Sale.Condition", level, sep = "_")] <- ifelse(dfcate$Sale.Condition == level, 1, 0)}
+```
+
+## 2.3.2. Create a set of numerical variable
+```{r}
+numer = c("Lot.Frontage", "Lot.Area", "Overall.Qual", "Overall.Cond",
+          "Year.Built", "Year.Remod.Add", "Mas.Vnr.Area", "BsmtFin.SF.1",
+          "BsmtFin.SF.2", "Bsmt.Unf.SF", "Total.Bsmt.SF", "X1st.Flr.SF",
+          "X2nd.Flr.SF", "Low.Qual.Fin.SF", "Gr.Liv.Area", "Bsmt.Full.Bath",
+          "Bsmt.Half.Bath", "Full.Bath", "Half.Bath", "Bedroom.AbvGr",
+          "Kitchen.AbvGr", "TotRms.AbvGrd", "Fireplaces", "Garage.Yr.Blt",
+          "Garage.Cars", "Garage.Area", "Wood.Deck.SF", "Open.Porch.SF",
+          "Enclosed.Porch", "X3Ssn.Porch", "Screen.Porch", "Pool.Area",
+          "Misc.Val", "Mo.Sold", "Yr.Sold", "SalePrice")
+dfnum = df[,numer]
+```
+
+## 2.3.3. Create a new dataframe combining numerical and dummy variables
+```{r}
+dfnew <- cbind(dfnum, dfcate[,41:297])
+dim(dfnew)
+```
+
+## 2.4. Correlation analysis
+
+- Build correlation atts with sale price
+```{r}
+correlations <- cor(dfnew)
+price_cor <- correlations[,36]
+summary(price_cor)
+```
+
+- correlation atts - price - Keep top 10 variables with the highest correlation
+```{r}
+head(price_cor[order(price_cor, decreasing = TRUE)],11)
+```
+
+- correlation mattrix
+```{r}
+top10 = c("Overall.Qual", "Gr.Liv.Area", "Garage.Cars", "Garage.Area", "X1st.Flr.SF", "Total.Bsmt.SF", "Full.Bath", "Year.Built", "Bsmt.Qual_Excellent", "Kitchen.Qual_Excellent","SalePrice")
+dftop = dfnew[,top10]
+dftop <- cor(dftop)
+dftop
+corrplot(dftop, na.label = "NA")
+```
+
+So we have 10 variables which belongs to belows types:
+- Numeric: Overall.Qual, Gr.Liv.Area, Garage.Cars, Garage.Area, X1st.Flr.SF, Total.Bsmt.SF, Full.Bath , Year.Built
+- Dummy varivales: Bsmt.Qual_Ex, Kitchen.Qual_Ex
+- Categories to be considered:  Bsmt.Qual, Kitchen.Qual
+
+
+# 3. Exploratory Data Analysis - EDA
+
+## 3.1. Overall SalePrice
+```{r}
+g1 <- ggplot(df, aes(SalePrice))+ 
+  geom_histogram(bins=60) + 
+  labs(title = "Histogram of Saleprice") + 
+  theme(plot.title=element_text(hjust=0.5)) +
+  geom_vline(aes(xintercept=mean(SalePrice)), color="blue", linetype="dashed", size=1) +
+  geom_text(aes(x=190000, label="Mean Value", y=250), colour="red", angle=90, vjust = 1.2, text=element_text(size=11))
+g1
+```
+
+```{r}
+ggplot(df, aes(sample=SalePrice)) +
+  stat_qq(color="dodgerblue4") + 
+  stat_qq_line(color="red") +
+  scale_y_continuous(labels=function(y){y/10^6}) +
+  labs(title="QQ Plot for SalePrices", y="Ordered Values") +
+  theme(plot.title=element_text(hjust=0.5))
+```
+
+- Log transformation - SalePrice
+```{r}
+ggplot(df, aes(sample=log(SalePrice))) +
+  stat_qq(color="dodgerblue4") + 
+  stat_qq_line(color="red") +
+  labs(title="QQ Plot for log(SalePrices)", y="Ordered values") +
+  theme(plot.title=element_text(hjust=0.5))
+```
+- New Overall SalePrice
+```{r}
+ggplot(df, aes(log(SalePrice))) +
+  geom_histogram(aes(y=..density..), 
+                 bins=50, 
+                 fill="dodgerblue4", 
+                 alpha=0.6, 
+                 color="white") +
+  geom_density(adjust=3)
+```
+
+- Bsmt.Qual and Kitchen.Qual
+```{r}
+d1 <- ggplot(data.frame(df), aes(x=Bsmt.Qual)) +
+  geom_bar()
+d1
+
+d2 <- ggplot(data.frame(df), aes(x=Kitchen.Qual)) +
+  geom_bar()
+d2
+```
+
+## 3.2. Plotting the marginal distributions of key categorical quantities of interest
+- Bsmt.Qual and Kitchen.Qual
+```{r}
+d1 <- ggplot(data.frame(df), aes(x=Bsmt.Qual)) +
+  geom_bar()
+d1
+
+d2 <- ggplot(data.frame(df), aes(x=Kitchen.Qual)) +
+  geom_bar()
+d2
+```
+
+- Bsmt.Qual and Kitchen.Qual in relationship with SalePrice
+```{r}
+b1 <- ggplot(df, aes(x = Bsmt.Qual, y = SalePrice)) +
+    geom_boxplot(aes(color = factor(Bsmt.Qual)))
+b1
+
+b2 <- ggplot(df, aes(x = Kitchen.Qual, y = SalePrice)) +
+    geom_boxplot(aes(color = factor(Kitchen.Qual)))
+b2
+```
+
+
+## 3.3. Plotting the marginal distributions of key numerical quantities of interest
+Overall.Qual, Gr.Liv.Area, Garage.Cars, Garage.Area, X1st.Flr.SF, Total.Bsmt.SF, Full.Bath, Year.Built
+```{r}
+p1 <- ggplot(df, aes(x=Overall.Qual)) + 
+  geom_density()
+p1 + geom_vline(aes(xintercept=mean(Overall.Qual)),
+            color="blue", linetype="dashed", size=1)
+
+p2 <- ggplot(df, aes(x=Gr.Liv.Area)) + 
+  geom_density()
+p2 + geom_vline(aes(xintercept=mean(Gr.Liv.Area)),
+            color="blue", linetype="dashed", size=1)
+
+p3 <- ggplot(df, aes(x=Garage.Cars)) + 
+  geom_density()
+p3 + geom_vline(aes(xintercept=mean(Garage.Cars)),
+            color="blue", linetype="dashed", size=1)
+
+p4 <- ggplot(df, aes(x=Garage.Area)) + 
+  geom_density()
+p4 + geom_vline(aes(xintercept=mean(Garage.Area)),
+            color="blue", linetype="dashed", size=1)
+
+p5 <- ggplot(df, aes(x=X1st.Flr.SF)) + 
+  geom_density()
+p5 + geom_vline(aes(xintercept=mean(X1st.Flr.SF)),
+            color="blue", linetype="dashed", size=1)
+
+p6 <- ggplot(df, aes(x=Total.Bsmt.SF)) + 
+  geom_density()
+p6 + geom_vline(aes(xintercept=mean(Total.Bsmt.SF)),
+            color="blue", linetype="dashed", size=1)
+
+p7 <- ggplot(df, aes(x=Full.Bath)) + 
+  geom_density()
+p7 + geom_vline(aes(xintercept=mean(Full.Bath)),
+            color="blue", linetype="dashed", size=1)
+
+p8 <- ggplot(df, aes(x=Year.Built)) + 
+  geom_density()
+p8 + geom_vline(aes(xintercept=mean(Year.Built)),
+            color="blue", linetype="dashed", size=1)
+```
+
+
+## 3.4. Inspecting price against numerical variables of interest
+Overall.Qual, Gr.Liv.Area, Garage.Cars, Garage.Area, X1st.Flr.SF, Total.Bsmt.SF, Full.Bath, Year.Built
+```{r}
+g1 <- ggplot(df, aes(factor(Overall.Qual), SalePrice, fill=factor(Overall.Qual))) + 
+  geom_boxplot() +
+  labs(x = "Overall.Qual", y = "SalePrice", title = "Boxplot of SalePrice vs. Overall.Qual") + 
+  theme(legend.position = 'none', plot.title = element_text(size = 9, hjust=0.5))
+g1
+
+g2 <- ggplot(df, aes(factor(Gr.Liv.Area), SalePrice, fill=factor(Gr.Liv.Area))) + 
+  geom_boxplot() +
+  labs(x = "Gr.Liv.Area", y = "SalePrice", title = "Boxplot of SalePrice vs. Gr.Liv.Area") + 
+  theme(legend.position = 'none', plot.title = element_text(size = 9, hjust=0.5))
+g2
+
+g3 <- ggplot(df, aes(factor(Garage.Cars), SalePrice, fill=factor(Garage.Cars))) + 
+  geom_boxplot() +
+  labs(x = "Garage.Cars", y = "SalePrice", title = "Boxplot of SalePrice vs. Garage.Cars") + 
+  theme(legend.position = 'none', plot.title = element_text(size = 9, hjust=0.5))
+g3
+
+g4 <- ggplot(df, aes(factor( Garage.Area), SalePrice, fill=factor( Garage.Area))) + 
+  geom_boxplot() +
+  labs(x = " Garage.Area", y = "SalePrice", title = "Boxplot of SalePrice vs.  Garage.Area") + 
+  theme(legend.position = 'none', plot.title = element_text(size = 9, hjust=0.5))
+g4
+
+g5 <- ggplot(df, aes(factor(X1st.Flr.SF), SalePrice, fill=factor(X1st.Flr.SF))) + 
+  geom_boxplot() +
+  labs(x = "X1st.Flr.SF", y = "SalePrice", title = "Boxplot of SalePrice vs. X1st.Flr.SF") + 
+  theme(legend.position = 'none', plot.title = element_text(size = 9, hjust=0.5))
+g5
+
+g6 <- ggplot(df, aes(factor(Total.Bsmt.SF), SalePrice, fill=factor(Total.Bsmt.SF))) + 
+  geom_boxplot() +
+  labs(x = "Total.Bsmt.SF", y = "SalePrice", title = "Boxplot of SalePrice vs. Total.Bsmt.SF") + 
+  theme(legend.position = 'none', plot.title = element_text(size = 9, hjust=0.5))
+g6
+
+g7 <- ggplot(df, aes(factor(Full.Bath), SalePrice, fill=factor(Full.Bath))) + 
+  geom_boxplot() +
+  labs(x = "Full.Bath", y = "SalePrice", title = "Boxplot of SalePrice vs. Full.Bath") + 
+  theme(legend.position = 'none', plot.title = element_text(size = 9, hjust=0.5))
+g7
+
+g8 <- ggplot(df, aes(factor(Year.Built), SalePrice, fill=factor(Year.Built))) + 
+  geom_boxplot() +
+  labs(x = "Year.Built", y = "SalePrice", title = "Boxplot of SalePrice vs. Year.Built") + 
+  theme(legend.position = 'none', plot.title = element_text(size = 9, hjust=0.5))
+g8
+```
+
+## 3.5. Box-Cox transformation
+
+```{r}
+bc1 <- boxcox(lm(SalePrice~Overall.Qual, data=dfnew))
+bc2 <- boxcox(lm(SalePrice~Gr.Liv.Area, data=dfnew))
+bc3 <- boxcox(lm(SalePrice~Garage.Cars, data=dfnew))
+bc4 <- boxcox(lm(SalePrice~Garage.Area, data=dfnew))
+bc5 <- boxcox(lm(SalePrice~X1st.Flr.SF, data=dfnew))
+bc6 <- boxcox(lm(SalePrice~Total.Bsmt.SF, data=dfnew))
+bc7 <- boxcox(lm(SalePrice~Full.Bath, data=dfnew))
+bc8 <- boxcox(lm(SalePrice~Year.Built, data=dfnew))
+```
+
+```{r}
+optimal_lambda1 <- bc1$x[which(bc1$y == max(bc1$y))]
+round(optimal_lambda1, 2)
+
+optimal_lambda2 <- bc2$x[which(bc2$y == max(bc2$y))]
+round(optimal_lambda2, 2)
+
+optimal_lambda3 <- bc3$x[which(bc3$y == max(bc3$y))]
+round(optimal_lambda3, 2)
+
+optimal_lambda4 <- bc4$x[which(bc4$y == max(bc4$y))]
+round(optimal_lambda4, 2)
+
+optimal_lambda5 <- bc5$x[which(bc5$y == max(bc5$y))]
+round(optimal_lambda5, 2)
+
+optimal_lambda6 <- bc6$x[which(bc6$y == max(bc6$y))]
+round(optimal_lambda6, 2)
+
+optimal_lambda7 <- bc7$x[which(bc7$y == max(bc7$y))]
+round(optimal_lambda7, 2)
+
+optimal_lambda8 <- bc8$x[which(bc8$y == max(bc8$y))]
+round(optimal_lambda8, 2)
+```
+
+All of 8 numerical variables are qualified to be transformed to log. But we need to take a look over their new relationships with SalePrice to decide which one should be used in log transformation.
+
+## 3.6. New relationships with SalePrice after Box-Cox transformation
+- log(Overall.Qual) with log(SalePrice)
+```{r}
+g1 <- ggplot(dfnew, aes(x=log(Overall.Qual), y=log(SalePrice))) +
+  geom_point(color="dodgerblue4",size=0.7) + 
+  labs(title="Log(SalePrice) vs. Log(Overall.Qual)") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+g2 <- ggplot(dfnew, aes(x=Overall.Qual, y=log(SalePrice))) +
+  geom_point(color="dodgerblue4", size=0.7) + 
+  labs(title="Log(SalePrice) vs. Overall.Qual") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+ggarrange(g1, g2, ncol=2,nrow=1)
+```
+
+- log(Gr.Liv.Area) with log(SalePrice)
+```{r}
+g1 <- ggplot(dfnew, aes(x=log(Gr.Liv.Area), y=log(SalePrice))) +
+  geom_point(color="dodgerblue4",size=0.7) + 
+  labs(title="Log(SalePrice) vs. Log(Gr.Liv.Area)") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+g2 <- ggplot(dfnew, aes(x=Gr.Liv.Area, y=log(SalePrice))) +
+  geom_point(color="dodgerblue4", size=0.7) + 
+  labs(title="Log(SalePrice) vs. Gr.Liv.Area") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+ggarrange(g1, g2, ncol=2,nrow=1)
+```
+
+- log(X1st.Flr.SF) with log(SalePrice)
+```{r}
+g1 <- ggplot(dfnew, aes(x=log(X1st.Flr.SF), y=log(SalePrice))) +
+  geom_point(color="dodgerblue4",size=0.7) + 
+  labs(title="Log(SalePrice) vs. Log(X1st.Flr.SF)") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+g2 <- ggplot(dfnew, aes(x=X1st.Flr.SF, y=log(SalePrice))) +
+  geom_point(color="dodgerblue4", size=0.7) + 
+  labs(title="Log(SalePrice) vs. X1st.Flr.SF") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+ggarrange(g1, g2, ncol=2,nrow=1)
+```
+
+- log(Year.Built) with log(SalePrice)
+```{r}
+g1 <- ggplot(dfnew, aes(x=log(Year.Built), y=log(SalePrice))) +
+  geom_point(color="dodgerblue4",size=0.7) + 
+  labs(title="Log(SalePrice) vs. Log(Year.Built)") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+g2 <- ggplot(dfnew, aes(x=Year.Built, y=log(SalePrice))) +
+  geom_point(color="dodgerblue4", size=0.7) + 
+  labs(title="Log(SalePrice) vs. Year.Built") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+ggarrange(g1, g2, ncol=2,nrow=1)
+```
+
+- log(Garage.Cars) with log(SalePrice)
+```{r}
+g1 <- ggplot(dfnew, aes(x=log(Garage.Cars), y=log(SalePrice))) +
+  geom_point(color="dodgerblue4",size=0.7) + 
+  labs(title="Log(SalePrice) vs. log(Garage.Cars)") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+g2 <- ggplot(dfnew, aes(x=Garage.Cars, y=log(SalePrice))) +
+  geom_point(color="dodgerblue4", size=0.7) + 
+  labs(title="Log(SalePrice) vs. Garage.Cars") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+ggarrange(g1, g2, ncol=2,nrow=1)
+```
+
+- log(Garage.Area) with log(SalePrice)
+```{r}
+g1 <- ggplot(dfnew, aes(x=log(Garage.Area), y=log(SalePrice))) +
+  geom_point(color="dodgerblue4",size=0.7) + 
+  labs(title="Log(SalePrice) vs. Log(Garage.Area)") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+g2 <- ggplot(dfnew, aes(x=Garage.Area, y=log(SalePrice))) +
+  geom_point(color="dodgerblue4", size=0.7) + 
+  labs(title="Log(SalePrice) vs. Garage.Area") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+ggarrange(g1, g2, ncol=2,nrow=1)
+```
+
+- log(Total.Bsmt.SF) with log(SalePrice)
+```{r}
+g1 <- ggplot(dfnew, aes(x=log(Total.Bsmt.SF), y=log(SalePrice))) +
+  geom_point(color="dodgerblue4",size=0.7) + 
+  labs(title="Log(SalePrice) vs. Log(Total.Bsmt.SF)") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+g2 <- ggplot(dfnew, aes(x=Total.Bsmt.SF, y=log(SalePrice))) +
+  geom_point(color="dodgerblue4", size=0.7) + 
+  labs(title="Log(SalePrice) vs. Total.Bsmt.SF") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+ggarrange(g1, g2, ncol=2,nrow=1)
+```
+
+- log(Full.Bath) with log(SalePrice)
+```{r}
+g1 <- ggplot(dfnew, aes(x=log(Full.Bath), y=log(SalePrice))) +
+  geom_point(color="dodgerblue4",size=0.7) + 
+  labs(title="Log(SalePrice) vs. Log(Full.Bath)") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+g2 <- ggplot(dfnew, aes(x=Full.Bath, y=log(SalePrice))) +
+  geom_point(color="dodgerblue4", size=0.7) + 
+  labs(title="Log(SalePrice) vs. Full.Bath") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+
+ggarrange(g1, g2, ncol=2,nrow=1)
+```
+
+As a result from this step, we decided to use log transformation for 4 independent numerical variables: Gr.Liv.Area, Garage.Area, X1st.Flr.SF, Total.Bsmt.SF. 
+
+## 3.7. Colinearity
+
+Regarding the Garage.Cars variable, we saw the colinearity between this variable and Garage.Area.
+```{r}
+# Investigate the relationship between Garage.Area and Garage.Cars
+cor(dfnew$Garage.Area,dfnew$Garage.Cars)
+cor(dfnew$Bsmt.Qual_Excellent,dfnew$Total.Bsmt.SF)
+
+g1 <- ggplot(dfnew, aes(x=Garage.Area, y=Garage.Cars)) +
+  geom_point(color="dodgerblue4",size=0.7) + 
+  labs(title="Garage.Area vs. Garage.Cars") +
+  geom_smooth(formula=y~x,method=lm, color="red") +
+  theme(plot.title=element_text(hjust=0.5))
+g1
+```
+
+-> Remove the Garage.Cars from the analysis
+
+# 4. Modeling 
+## 4.1. Modeling with top 9 variables
+
+- Create training and teting dataset from dfnew 
+```{r}
+#Create Evaluation Sets
+set.seed(1)
+trainIndexes = sample(nrow(df),2000) 
+
+#Creates training and test set from observations 
+training = dfnew[trainIndexes,]
+testing = dfnew[-trainIndexes,]
+```
+
+- Creat the first model including 7 numerical variables and 2 categorical variables:
+```{r}
+SalePrice_model1 <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(Garage.Area) + log(X1st.Flr.SF) + log(Total.Bsmt.SF) +  Full.Bath + Year.Built + Kitchen.Qual_Excellent + Bsmt.Qual_Excellent, data = dfnew)
+summary(SalePrice_model1)
+```
+
+
+- Create the second model by removing the Full.Bath varriable which had p-value > 0.05:
+```{r}
+SalePrice_model2 <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(Garage.Area) + log(X1st.Flr.SF) + log(Total.Bsmt.SF) +  Year.Built + Kitchen.Qual_Excellent + Bsmt.Qual_Excellent, data = dfnew)
+summary(SalePrice_model2)
+```
+
+- Try to investigate the interaction between log(Total.Bsmt.SF) and Bsmt.Qual:
+```{r}
+SalePrice_model3 <- lm(log(SalePrice) ~ Overall.Qual + log(Gr.Liv.Area) + log(Garage.Area) + log(X1st.Flr.SF) + log(Total.Bsmt.SF) +  Year.Built + Bsmt.Qual + log(Total.Bsmt.SF)*Bsmt.Qual, data = df)
+summary(SalePrice_model3)
+```
+
+-> There is no insight into the model summary. Also, the Bsmt.Qual now became not significant.
+-> The best model to fit: Model 2:
+```{r}
+summary(SalePrice_model2)
+```
+
+- Create a confidence interval for the model coefficients
+
+```{r}
+confint(SalePrice_model2, conf.level=0.95)
+```
+
+- Check the diagnostic plots for the model
+
+```{r}
+plot(SalePrice_model2)
+```
+
+
+## 4.2. Model with full variables 
+- Create training and testing datasets
+- Create Evaluation Sets
+```{r}
+dffull <- read.csv("dfnew.csv",
+                     stringsAsFactors = FALSE, na.strings = c("NA", ""))
+
+```
+
+```{r}
+set.seed(1)
+trainIndexes = sample(nrow(dfnew),2000) 
+
+#Creates training and test set from observations 
+traindat = dffull[trainIndexes,]
+testdat = dffull[-trainIndexes,]
+```
+
+
+```{r}
+# Create a linear regression model
+#Fit a linear regression model (to establish a familiar baseline)
+model <- lm(SalePrice ~ . , traindat)
+
+summary(model)
+
+#Compute mean absolute error of model on train set
+trainMAE <- mean(abs(model$residuals)) # 15081.7
+trainMAE
+
+#Calculate predictions for each observation in test set
+predictY <- predict(model, testdat)
+
+#Compute model residuals on the test set
+testerrors <- testdat$SalePrice - predictY
+
+#Compute mean absolute error of model on test set
+testMAE <- mean(abs(testerrors)) #17257.71
+testMAE
+
+#Compute R^2
+SSE <- sum((testdat$SalePrice- predictY)^2)
+SST <- sum((testdat$SalePrice - mean(traindat$SalePrice))^2)
+R_Square <- 1-(SSE/SST) 
+R_Square# 0.9049922
+```
+
+```{r}
+# back to new model 
+traindat = dffull[trainIndexes,]
+#The rest of the observations are set aside for test
+testdat = dffull[-trainIndexes,]
+
+model <- lm(SalePrice ~ . , traindat)
+
+prevtrainMAE = trainMAE
+for (i in 1:ncol(traindat)){
+  # Create a linear regression model
+  varimportance = data.frame(pvalue=coef(summary(model))[,4])
+  varimportance$Predictor <- rownames(varimportance)
+  #drop intercept
+  varimportance = varimportance[2:nrow(varimportance),]
+  #sort on pvalue
+  varimportance = varimportance[order(-varimportance$pvalue),]
+  print(nrow(varimportance))
+  print(varimportance[1,1])
+  if (varimportance[1,1]<.05){
+    break
+  }
+  #drop highest p-value
+  varimportance = varimportance[2:nrow(varimportance),]
+  #store x variable names for use in lm()
+  newxvalues = varimportance$Predictor
+  #Fit a linear regression model
+  model <- lm(SalePrice ~ . , traindat[,c("SalePrice",newxvalues)])
+  
+  #Compute mean absolute error of model on train set
+  newtrainMAE <- mean(abs(model$residuals))
+}
+summary(model)
+
+#lets look at the selected features
+View(varimportance)
+
+newtrainMAE  # 15555.18
+
+#Calculate predictions for each observation in test set
+predictY <- predict(model, testdat[,newxvalues])
+
+#Compute model residuals on the test set
+testerrors <- testdat$SalePrice - predictY
+
+#Compute mean absolute error of model on test set
+testMAE <- mean(abs(testerrors)) # 16545.16 
+testMAE
+
+#Compute R^2
+SSE <- sum((testdat$SalePrice- predictY)^2)
+SST <- sum((testdat$SalePrice - mean(traindat$SalePrice))^2)
+R_Square <- 1-(SSE/SST) #0.9083282
+R_Square
+```
+
+
+```{r}
+###cross validation 
+#Set up several data sets and Y variable vectors
+#full
+fullPriceY = dffull$SalePrice
+dffull$SalePrice = NULL
+
+#train
+trainPriceY = traindat$SalePrice
+traindat$SalePrice = NULL
+
+#test
+testPriceY = testdat$SalePrice
+testdat$SalePrice = NULL
+
+library(caret)
+set.seed(1)
+indx <- createFolds(trainPriceY, returnTrain = TRUE)
+ctrl <- trainControl(method = "cv", index = indx)
+
+set.seed(1)
+lmTune0 <- train(x = traindat[,newxvalues], y = trainPriceY,
+                 method = "lm",
+                 trControl = ctrl)
+
+lmTune0               
+
+#Compute mean absolute error of model on train set
+lmTune0$results$MAE # 16804.3
+
+#Calculate predictions for each observation in test set
+predictY <- predict(lmTune0, testdat[,newxvalues])
+
+#Compute model residuals on the test set
+testerrors <- testPriceY - predictY
+
+#Compute mean absolute error of model on test set
+testMAE <- mean(abs(testerrors)) # 16545.16
+testMAE
+
+#Compute R^2 
+
+SSE <- sum((testPriceY- predictY)^2)
+SST <- sum((testPriceY - mean(trainPriceY))^2)
+R_Square <- 1-(SSE/SST) #0.9083282
+R_Square
+```
