@@ -18,4 +18,11 @@ https://www.kaggle.com/c/house-prices-advanced-regression-techniques/data
 - Techniques: Correlation Analysis, EDA, Regression Modeling
 
 ### 5. Files included
-- 
+- Data: AmesHousing.txt
+- Secondary cleaned data: dfnew.csv
+- Data cleaning reports: dqames_cat.csv and dqames_num.csv
+- Report: Final Report - Team 1.pdf or https://towardsdatascience.com/regression-modeling-in-predicting-optimal-house-sales-price-in-ames-iowa-d5e63f6d44e2
+- R files: Project_Team1-Final.Rmd and Project_Team1-Final.html
+
+### 6. Others
+NA
